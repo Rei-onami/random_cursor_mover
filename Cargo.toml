@@ -1,0 +1,10 @@
+[package]
+name = "system_helper"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+enigo = "0.1"
+rand = "0.8"
+rdev = "0.5"
+eframe = "0.26"
