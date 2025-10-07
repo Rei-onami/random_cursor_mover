@@ -25,7 +25,7 @@ struct Settings {
     min_pixel_move: i32,
     max_pixel_move: i32,
     axis_bias_percent: i32, // -400..=400 смещение вероятности по оси (%)
-    movement_mode: i32, // 0 = X/Y (с bias), 1 = only X, 2 = only Y
+    movement_mode: i32, // 0 = X/Y (с bias), 1 = only X random, 2 = only Y random, 3 = X back-forth, 4 = Y back-forth, 5 = X back-forth no random, 6 = Y back-forth no random
 }
 
 // Дефолтные значения
@@ -57,11 +57,11 @@ fn main() {
         thread::spawn(move || {
             let mut enigo = Enigo::new();
             let mut rng = rand::thread_rng();
-			
+
             // Состояние направления для back-forth режимов
             static mut DIRECTION_X: i32 = 1;
             static mut DIRECTION_Y: i32 = 1;
-			
+
             while running.load(Ordering::SeqCst) {
                 if !paused.load(Ordering::SeqCst) {
                     let s = settings.lock().unwrap();
@@ -71,9 +71,6 @@ fn main() {
                     let max_delay = s.min_delay_ms.max(s.max_delay_ms);
                     let min_move = s.min_pixel_move.min(s.max_pixel_move);
                     let max_move = s.min_pixel_move.max(s.max_pixel_move);
-
-                    let dx = rng.gen_range(min_move..=max_move);
-                    let dy = rng.gen_range(min_move..=max_move);
 
                     let (move_x, move_y) = match s.movement_mode {
                         1 => { // only X random
@@ -93,6 +90,22 @@ fn main() {
                             }
                         }
                         4 => { // only Y back-forth
+                            let step = s.min_pixel_move;
+                            unsafe {
+                                let dir = DIRECTION_Y;
+                                DIRECTION_Y = -DIRECTION_Y; // Меняем направление
+                                (0, dir * step)
+                            }
+                        }
+                        5 => { // only X back-forth no random
+                            let step = s.min_pixel_move;
+                            unsafe {
+                                let dir = DIRECTION_X;
+                                DIRECTION_X = -DIRECTION_X; // Меняем направление
+                                (dir * step, 0)
+                            }
+                        }
+                        6 => { // only Y back-forth no random
                             let step = s.min_pixel_move;
                             unsafe {
                                 let dir = DIRECTION_Y;
@@ -156,14 +169,29 @@ fn main() {
                             std::process::exit(0);
                         }
 
-                        // Toggle логика для pause/resume
-                        if key == s.pause_key || key == s.resume_key {
-                            let current_paused = paused.load(Ordering::SeqCst);
-                            paused.store(!current_paused, Ordering::SeqCst);
-                            if !current_paused {
-                                println!("Cursor movement paused");
-                            } else {
-                                println!("Cursor movement resumed");
+                        // Логика для pause/resume
+                        if s.pause_key == s.resume_key {
+                            if key == s.pause_key {
+                                let current_paused = paused.load(Ordering::SeqCst);
+                                paused.store(!current_paused, Ordering::SeqCst);
+                                if !current_paused {
+                                    println!("Cursor movement paused");
+                                } else {
+                                    println!("Cursor movement resumed");
+                                }
+                            }
+                        } else {
+                            if key == s.pause_key {
+                                if !paused.load(Ordering::SeqCst) {
+                                    paused.store(true, Ordering::SeqCst);
+                                    println!("Cursor movement paused");
+                                }
+                            }
+                            if key == s.resume_key {
+                                if paused.load(Ordering::SeqCst) {
+                                    paused.store(false, Ordering::SeqCst);
+                                    println!("Cursor movement resumed");
+                                }
                             }
                         }
                     }
@@ -273,15 +301,15 @@ impl App for MyApp {
             ui.add_space(10.0);
             ui.add(egui::Slider::new(&mut s.min_delay_ms, 50..=5000).text("Min Delay (ms)"));
             ui.add(egui::Slider::new(&mut s.max_delay_ms, 50..=5000).text("Max Delay (ms)"));
-            ui.add(egui::Slider::new(&mut s.min_pixel_move, 0..=10).text("Min pixel move (and step for MovementМode 3, 4)"));
+            ui.add(egui::Slider::new(&mut s.min_pixel_move, 0..=10).text("Min pixel move"));
             ui.add(egui::Slider::new(&mut s.max_pixel_move, 0..=10).text("Max pixel move"));
             ui.add(egui::Slider::new(&mut s.axis_bias_percent, -400..=400).text("Axis bias (%) (positive: Y more, negative: X more)"));
             ui.add_space(10.0);
 
             // Новый слайдер для режима движения
             ui.add_space(10.0);
-            ui.label("MovementМode (0=random X/Y, 1=random only X, 2=random only Y, 3=Only X back-forth 4=Only Y back-forth)");
-            ui.add(egui::Slider::new(&mut s.movement_mode, 0..=4).text("MovementМode"));
+            ui.label("Movement mode (0: X/Y, 1: only X random, 2: only Y random, 3: X back-forth, 4: Y back-forth, 5: X back-forth no random, 6: Y back-forth no random)");
+            ui.add(egui::Slider::new(&mut s.movement_mode, 0..=6).text("Movement mode"));
 
             // Кнопка сброса к дефолтным значениям
             ui.add_space(10.0);
